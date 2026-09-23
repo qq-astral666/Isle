@@ -1,0 +1,10 @@
+build/
+build-release/
+cmake-build-*/
+.idea/
+.DS_Store
+compile_commands.json
+resources/AppIcon.icns
+
+# raw screen recordings (demo.gif is committed instead)
+*.mov
