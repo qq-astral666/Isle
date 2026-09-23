@@ -24,6 +24,9 @@ void takeFocus(QWindow*) {}
 void releaseFocus(QWindow*) {}
 bool isMouseButtonDown() { return QGuiApplication::mouseButtons() != Qt::NoButton; }
 qint64 dragPasteboardChangeCount() { return 0; }
+bool dragHasFiles() { return false; }
+bool isFullScreenActive() { return false; }
+void setWindowShown(QWindow*, bool) {}
 QImage fileIcon(const QString&, int) { return {}; }
 void openFile(const QString&) {}
 void revealInFinder(const QString&) {}

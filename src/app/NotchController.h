@@ -138,6 +138,9 @@ private:
     bool m_pressStartedInside = false;
     qint64 m_dragCountAtPress = 0;
 
+    bool m_hiddenForFullScreen = false;
+    quint64 m_pollTicks = 0;
+
     bool m_timerFlash = false;
     bool m_settingsOpen = false;
     bool m_showMediaCollapsed = true;

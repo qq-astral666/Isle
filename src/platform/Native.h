@@ -20,7 +20,7 @@ struct NotchInfo {
 NotchInfo notchInfo();
 
 // Borderless non-activating panel above the menu bar, on every Space and
-// over full-screen apps. Call before and after the first show().
+// hidden in full-screen apps. Call before and after the first show().
 void configureWindow(QWindow* window);
 // Sets the frame directly (Cocoa would otherwise keep it below the menu bar).
 void placeWindow(QWindow* window, const QRect& qtGeometry);
@@ -30,9 +30,17 @@ void setClickThrough(QWindow* window, bool clickThrough);
 void takeFocus(QWindow* window);
 void releaseFocus(QWindow* window);
 
+// The island's display is currently showing a full-screen Space
+// (full-screen app or Split View).
+bool isFullScreenActive();
+// orderOut / orderFrontRegardless without touching Qt's visibility.
+void setWindowShown(QWindow* window, bool shown);
+
 bool isMouseButtonDown();
 // Changes whenever a drag-and-drop session starts anywhere in the system.
 qint64 dragPasteboardChangeCount();
+// The current drag carries files (not text, links or browser tabs).
+bool dragHasFiles();
 
 QImage fileIcon(const QString& path, int pixels);
 void openFile(const QString& path);

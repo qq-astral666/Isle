@@ -12,9 +12,10 @@
 namespace {
 
 constexpr int kPollMs = 40;
-constexpr int kHoverDelayMs = 140;   // don't pop open when the cursor merely passes by
-constexpr int kLeaveDelayMs = 320;
+constexpr int kHoverDelayMs = 220;   // don't pop open when the cursor merely passes by
+constexpr int kLeaveDelayMs = 250;
 constexpr int kFlashMs = 5000;
+constexpr int kFullScreenCheckTicks = 6;   // every ~240 ms
 
 namespace keys {
 const QString showMedia = QStringLiteral("showMediaCollapsed");
@@ -82,7 +83,9 @@ void NotchController::updateGeometry()
                          kWindowWidth, kWindowHeight);
     if (m_window) {
         m_window->setGeometry(m_windowRect);
-        native::placeWindow(m_window, m_windowRect);
+        native::placeWindow(m_window, m_windowRect);   // orders the window front
+        if (m_hiddenForFullScreen)
+            native::setWindowShown(m_window, false);
     }
     emit geometryChanged();
 }
@@ -98,22 +101,50 @@ QRect NotchController::shapeRect(const QSize& size, int marginX, int marginBotto
 
 void NotchController::poll()
 {
+    // Step aside in full-screen apps, like the menu bar does.
+    if (m_pollTicks++ % kFullScreenCheckTicks == 0) {
+        const bool fullScreen = native::isFullScreenActive();
+        if (fullScreen != m_hiddenForFullScreen) {
+            m_hiddenForFullScreen = fullScreen;
+            if (fullScreen) {
+                setExpanded(false);
+                setInteractive(false);
+                setDragHover(false);
+            }
+            native::setWindowShown(m_window, !fullScreen);
+        }
+    }
+    if (m_hiddenForFullScreen)
+        return;
+
     const QPoint cursor = QCursor::pos();
     const bool down = native::isMouseButtonDown();
 
     // A drag-and-drop session bumps the drag pasteboard. Comparing it with
     // its value at mouse-down tells a file drag from a click on the menu bar.
-    if (down && !m_wasMouseDown) {
+    const bool pressed = down && !m_wasMouseDown;
+    if (pressed) {
         m_dragCountAtPress = native::dragPasteboardChangeCount();
-        m_pressStartedInside = m_expanded && shapeRect(m_expandedSize, 14, 16).contains(cursor);
+        m_pressStartedInside = m_expanded && shapeRect(m_expandedSize, 8, 8).contains(cursor);
     }
+    // Only file drags open the island: dragging text, links or browser tabs
+    // near the top of the screen must not.
     const bool dragging = down && !m_pressStartedInside
-        && native::dragPasteboardChangeCount() != m_dragCountAtPress;
+        && native::dragPasteboardChangeCount() != m_dragCountAtPress
+        && native::dragHasFiles();
     m_wasMouseDown = down;
 
+    // A click anywhere outside the open island closes it right away.
+    if (m_expanded && pressed && !m_pressStartedInside) {
+        m_pinClock.invalidate();
+        setExpanded(false);
+    }
+
     if (!m_expanded) {
-        const QRect hot = shapeRect(m_collapsedSize, 8, 6);
-        const QRect dragZone = shapeRect(m_collapsedSize, 140, 80);
+        // Hover counts only inside the menu-bar band (no margin below it), so
+        // browser tabs and toolbars right under the menu bar never trigger it.
+        const QRect hot = shapeRect(m_collapsedSize, 4, 0);
+        const QRect dragZone = shapeRect(m_collapsedSize, 80, 40);
         if (dragging && dragZone.contains(cursor)) {
             setExpanded(true);
         } else if (!down && hot.contains(cursor)) {
@@ -127,7 +158,7 @@ void NotchController::poll()
     }
 
     if (m_expanded) {
-        const QRect area = shapeRect(m_expandedSize, 14, 16);
+        const QRect area = shapeRect(m_expandedSize, 8, 8);
         const bool inside = area.contains(cursor);
         const bool pinned = m_pinClock.isValid() && m_pinClock.elapsed() < m_pinMs;
         // Keep open while the button is held after pressing inside

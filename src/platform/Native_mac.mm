@@ -9,6 +9,8 @@
 #import <AppKit/AppKit.h>
 #import <ServiceManagement/ServiceManagement.h>
 
+#include <dlfcn.h>
+
 namespace {
 
 NSWindow* nsWindowOf(QWindow* window)
@@ -32,6 +34,44 @@ QRect toQt(NSRect r)
 }
 
 NSRunningApplication* g_previousApp = nil;
+
+// Private SkyLight calls (the same ones yabai and Hammerspoon use), resolved
+// at runtime so a future macOS without them just disables the feature.
+using CGSMainConnectionIDFn = int (*)();
+using CGSCopyManagedDisplaySpacesFn = CFArrayRef (*)(int);
+using CGDisplayCreateUUIDFn = CFUUIDRef (*)(uint32_t);
+constexpr int kCGSSpaceTypeFullScreen = 4;
+
+template <typename Fn>
+Fn resolve(const char* name)
+{
+    return reinterpret_cast<Fn>(dlsym(RTLD_DEFAULT, name));
+}
+
+// Same choice as notchInfo(): the notched display, else the menu-bar one.
+NSScreen* islandScreen()
+{
+    if (@available(macOS 12.0, *)) {
+        for (NSScreen* screen in NSScreen.screens)
+            if (screen.safeAreaInsets.top > 0)
+                return screen;
+    }
+    return NSScreen.screens.firstObject;
+}
+
+NSString* displayUuid(NSScreen* screen)
+{
+    static const auto createUuid = resolve<CGDisplayCreateUUIDFn>("CGDisplayCreateUUIDFromDisplayID");
+    NSNumber* number = screen.deviceDescription[@"NSScreenNumber"];
+    if (!createUuid || !number)
+        return nil;
+    CFUUIDRef uuid = createUuid(number.unsignedIntValue);
+    if (!uuid)
+        return nil;
+    NSString* string = (__bridge_transfer NSString*)CFUUIDCreateString(nullptr, uuid);
+    CFRelease(uuid);
+    return string;
+}
 
 } // namespace
 
@@ -91,7 +131,9 @@ void configureWindow(QWindow* window)
     w.level = NSMainMenuWindowLevel + 3;   // above the menu bar
     w.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces
                          | NSWindowCollectionBehaviorStationary
-                         | NSWindowCollectionBehaviorFullScreenAuxiliary
+                         // No FullScreenAuxiliary; full-screen Spaces are also
+                         // detected explicitly (isFullScreenActive) and the
+                         // window is ordered out there.
                          | NSWindowCollectionBehaviorIgnoresCycle;
     w.hidesOnDeactivate = NO;
     w.hasShadow = NO;
@@ -138,6 +180,48 @@ void releaseFocus(QWindow* window)
         [g_previousApp activateWithOptions:0];
 }
 
+bool isFullScreenActive()
+{
+    static const auto mainConnection = resolve<CGSMainConnectionIDFn>("CGSMainConnectionID");
+    static const auto copySpaces = resolve<CGSCopyManagedDisplaySpacesFn>("CGSCopyManagedDisplaySpaces");
+    if (!mainConnection || !copySpaces)
+        return false;
+
+    @autoreleasepool {
+        NSArray* displays = (__bridge_transfer NSArray*)copySpaces(mainConnection());
+        if (displays.count == 0)
+            return false;
+        NSString* uuid = displayUuid(islandScreen());
+
+        NSDictionary* match = nil;
+        for (NSDictionary* display in displays) {
+            NSString* ident = display[@"Display Identifier"];
+            // "Main" = "Displays have separate Spaces" is off: one set for all.
+            if ([ident isEqualToString:@"Main"]
+                || (uuid && [ident caseInsensitiveCompare:uuid] == NSOrderedSame)) {
+                match = display;
+                break;
+            }
+        }
+        if (!match)
+            match = displays.firstObject;
+
+        NSNumber* type = match[@"Current Space"][@"type"];
+        return type.intValue == kCGSSpaceTypeFullScreen;
+    }
+}
+
+void setWindowShown(QWindow* window, bool shown)
+{
+    NSWindow* w = nsWindowOf(window);
+    if (!w)
+        return;
+    if (shown)
+        [w orderFrontRegardless];
+    else
+        [w orderOut:nil];
+}
+
 bool isMouseButtonDown()
 {
     return NSEvent.pressedMouseButtons != 0;
@@ -146,6 +230,15 @@ bool isMouseButtonDown()
 qint64 dragPasteboardChangeCount()
 {
     return static_cast<qint64>([NSPasteboard pasteboardWithName:NSPasteboardNameDrag].changeCount);
+}
+
+bool dragHasFiles()
+{
+    @autoreleasepool {
+        NSPasteboard* pb = [NSPasteboard pasteboardWithName:NSPasteboardNameDrag];
+        return [pb canReadObjectForClasses:@[[NSURL class]]
+                                   options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
+    }
 }
 
 QImage fileIcon(const QString& path, int pixels)
