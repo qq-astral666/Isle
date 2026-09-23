@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Isle
-    VERSION 1.0.0
+    VERSION 1.0.1
     DESCRIPTION "Dynamic Island for the MacBook notch"
     LANGUAGES CXX)
 
