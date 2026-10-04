@@ -39,6 +39,8 @@ qt_add_executable(Isle MACOSX_BUNDLE
     src/app/NotchController.cpp
     src/app/NowPlaying.h
     src/app/NowPlaying.cpp
+    src/app/MediaBridge.h
+    src/app/MediaBridge.cpp
     src/app/ImageStore.h
     src/app/ImageStore.cpp
     src/app/QmlTypes.h
@@ -55,6 +57,21 @@ if(APPLE)
     target_link_libraries(Isle PRIVATE
         "-framework AppKit"
         "-framework ServiceManagement")
+
+    # Now Playing bridge: a small library that runs inside /usr/bin/perl
+    # (Apple-signed, so MediaRemote still answers it on macOS 15.4+).
+    enable_language(OBJC)
+    add_library(IsleMediaBridge MODULE src/platform/MediaBridge.m)
+    set_target_properties(IsleMediaBridge PROPERTIES PREFIX "" SUFFIX ".dylib")
+    target_compile_options(IsleMediaBridge PRIVATE -fobjc-arc)
+    target_link_libraries(IsleMediaBridge PRIVATE "-framework Foundation" "-framework AppKit")
+    add_dependencies(Isle IsleMediaBridge)
+    set_source_files_properties(resources/media_bridge.pl PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    target_sources(Isle PRIVATE resources/media_bridge.pl)
+    add_custom_command(TARGET Isle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:Isle>/Frameworks"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:IsleMediaBridge>" "$<TARGET_BUNDLE_CONTENT_DIR:Isle>/Frameworks/"
+        VERBATIM)
 else()
     target_sources(Isle PRIVATE src/platform/Platform_stub.cpp)
 endif()

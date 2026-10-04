@@ -40,7 +40,8 @@ src/
 │   └── ImageStore           # artwork and file icons for QML
 └── platform/
     ├── Native_mac.mm        # window above the menu bar, NSPanel, drag detection, SMAppService
-    └── Media_mac.mm         # MediaRemote + AppleScript (Spotify, Music)
+    ├── Media_mac.mm         # MediaRemote + AppleScript (Spotify, Music)
+    └── MediaBridge.m        # Now Playing helper that runs inside /usr/bin/perl
 qml/                         # notch shape on QtQuick.Shapes, cards, animations
 ```
 
@@ -50,7 +51,7 @@ Notable decisions:
 - **Window above the menu bar**: `NSMainMenuWindowLevel + 3`, `NonactivatingPanel`, visible on every Space; hides in full-screen apps, like the menu bar.
 - **Click-through.** The window is large, but while collapsed it sets `ignoresMouseEvents = YES`. The cursor is polled 25 times a second, and click-through is lifted only when the cursor is over the island.
 - **Telling a file drag from a menu click.** The `changeCount` of the system drag pasteboard is compared at mouse-down and during movement: if it changed, a drag-and-drop is in progress and the notch opens to meet it.
-- **Two now-playing sources.** Private `MediaRemote` sees any player, but since macOS 15.4 Apple has locked it for third-party apps. So there's a fallback via AppleScript to Spotify and Music, with compiled scripts cached. Isle never talks to a player that isn't running — otherwise `tell application` would launch it.
+- **Now playing from any player.** The private `MediaRemote` framework sees every player (Yandex Music, browsers, Spotify…), but since macOS 15.4 it only answers Apple-signed processes. Isle ships a tiny library that `/usr/bin/perl` — an Apple-signed binary — loads through `DynaLoader`; it reads Now Playing inside perl and streams JSON lines back to Isle, and sends play/pause/next the same way. If that ever stops working, Isle falls back to AppleScript for Spotify and Music (compiled scripts cached, and never talking to a player that isn't running — `tell application` would launch it).
 - **Island shape** is a single `ShapePath` with rounded corners and concave "ears" at the screen edge. Width and height are driven by `SpringAnimation`, which gives the expansion its bounce.
 
 ## Building

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Media.h"
+#include "MediaBridge.h"
 
 #include <QElapsedTimer>
 #include <QObject>
@@ -52,16 +53,18 @@ signals:
     void positionChanged();
 
 private:
-    enum class Source { None, System, Scripted };
+    enum class Source { None, System, Scripted, Bridge };
 
     void poll();
     void pollScripted();
     void apply(const media::Track& track, Source source);
+    void onBridgeTrack(const media::Track& track);
     void clear();
     void send(media::Command command);
     void advance();
 
     std::shared_ptr<ImageStore> m_images;
+    MediaBridge m_bridge;
     QTimer m_pollTimer;
     QTimer m_positionTimer;
     bool m_systemBusy = false;

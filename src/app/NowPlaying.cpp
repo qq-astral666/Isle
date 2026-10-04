@@ -22,10 +22,23 @@ NowPlaying::NowPlaying(std::shared_ptr<ImageStore> images, QObject* parent)
 
     m_positionTimer.setInterval(250);
     connect(&m_positionTimer, &QTimer::timeout, this, &NowPlaying::advance);
+
+    connect(&m_bridge, &MediaBridge::track, this, &NowPlaying::onBridgeTrack);
+}
+
+void NowPlaying::onBridgeTrack(const media::Track& track)
+{
+    if (track.valid)
+        apply(track, Source::Bridge);
+    else
+        clear();
 }
 
 void NowPlaying::start()
 {
+    // The bridge sees every player (Яндекс Музыка, browsers...). While it
+    // works, the other sources stand down; they're the fallback.
+    m_bridge.start();
     poll();
     m_pollTimer.start();
     m_positionTimer.start();
@@ -39,6 +52,8 @@ QString NowPlaying::formatTime(double seconds) const
 
 void NowPlaying::poll()
 {
+    if (m_bridge.active())
+        return;
     ++m_pollCount;
     if (m_systemBusy) {
         // MediaRemote normally answers within milliseconds; never wait forever.
@@ -99,7 +114,9 @@ void NowPlaying::apply(const media::Track& t, Source source)
     m_duration = t.duration;
     m_position = std::clamp(t.position, 0.0, t.duration > 0 ? t.duration : t.position);
 
-    if (!t.artwork.isNull() && (trackChanged || !m_artworkSource.startsWith(QLatin1String("image://")))) {
+    // The bridge only sends artwork when it changes, so take it whenever it comes.
+    if (!t.artwork.isNull()
+        && (trackChanged || source == Source::Bridge || !m_artworkSource.startsWith(QLatin1String("image://")))) {
         m_images->remove(QStringLiteral("art%1").arg(m_artGeneration - 1));
         ++m_artGeneration;
         const QString id = QStringLiteral("art%1").arg(m_artGeneration);
@@ -145,7 +162,9 @@ void NowPlaying::advance()
 
 void NowPlaying::send(media::Command command)
 {
-    if (m_source == Source::System)
+    if (m_source == Source::Bridge)
+        m_bridge.send(command);
+    else if (m_source == Source::System)
         media::sendSystem(command);
     else if (!m_appId.isEmpty())
         media::sendScripted(m_appId, command);
